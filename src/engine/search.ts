@@ -196,6 +196,58 @@ function scoreMove(board: Board, m: Move): number {
   return score;
 }
 
+export function qsearch(board: Board, alpha: number, beta: number): number {
+  const standPat = evaluate(board);
+  if (standPat > 5000 || standPat < -5000) {
+    return standPat;
+  }
+
+  const isMaximizing = board.sideToMove === WHITE;
+
+  if (isMaximizing) {
+    if (standPat >= beta) return beta;
+    if (standPat > alpha) alpha = standPat;
+  } else {
+    if (standPat <= alpha) return alpha;
+    if (standPat < beta) beta = standPat;
+  }
+
+  let moves = generateMoves(board);
+  // Filter only captures
+  moves = moves.filter(m => m.captured !== EMPTY);
+  if (moves.length === 0) {
+    return standPat;
+  }
+
+  const scoredMoves = moves.map(m => ({ move: m, score: scoreMove(board, m) }));
+  scoredMoves.sort((a, b) => b.score - a.score);
+  moves = scoredMoves.map(x => x.move);
+
+  if (isMaximizing) {
+    let maxEval = standPat;
+    for (const m of moves) {
+      const child = board.clone();
+      makeMove(child, m);
+      const score = qsearch(child, alpha, beta);
+      maxEval = Math.max(maxEval, score);
+      alpha = Math.max(alpha, score);
+      if (beta <= alpha) break;
+    }
+    return maxEval;
+  } else {
+    let minEval = standPat;
+    for (const m of moves) {
+      const child = board.clone();
+      makeMove(child, m);
+      const score = qsearch(child, alpha, beta);
+      minEval = Math.min(minEval, score);
+      beta = Math.min(beta, score);
+      if (beta <= alpha) break;
+    }
+    return minEval;
+  }
+}
+
 export function alphabeta(board: Board, depth: number, alpha: number, beta: number): [number, Move | null] {
   const staticEval = evaluate(board);
   if (staticEval > 5000 || staticEval < -5000) {
@@ -203,8 +255,20 @@ export function alphabeta(board: Board, depth: number, alpha: number, beta: numb
     return [adj, null];
   }
 
+  // Direct King Attack Check: If the opponent left their king under direct attack at the end of their turn,
+  // they lose immediately (win for the side to move). This is checked at the start of a turn (pliesThisTurn == 0).
+  if (board.pliesThisTurn === 0) {
+    const moves = generateMoves(board);
+    for (const m of moves) {
+      if (m.captured !== EMPTY && (m.captured & 7) === KING) {
+        const winScore = board.sideToMove === WHITE ? 10000 + depth : -10000 - depth;
+        return [winScore, null];
+      }
+    }
+  }
+
   if (depth === 0) {
-    return [staticEval, null];
+    return [qsearch(board, alpha, beta), null];
   }
 
   let moves = generateMoves(board);
