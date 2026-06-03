@@ -462,27 +462,10 @@ export default function App() {
   const whitePct = ((evalClamped + 80) / 160) * 100;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: "100vw",
-        minHeight: "100vh",
-        backgroundColor: "var(--bg-primary)",
-      }}
-    >
+    <div className="app-container">
       {/* Dynamic Header */}
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "16px 36px",
-          borderBottom: "1px solid var(--border-color)",
-          background: "rgba(22, 21, 18, 0.95)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+      <header className="header-container">
+        <div className="header-logo-title">
           <div
             style={{
               width: "34px",
@@ -507,7 +490,7 @@ export default function App() {
         </div>
 
         {/* Mode Buttons */}
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div className="header-modes">
           <button
             onClick={() => {
               setGameMode("pvr");
@@ -575,17 +558,7 @@ export default function App() {
       </header>
 
       {/* Main Play Area */}
-      <main
-        style={{
-          display: "flex",
-          flex: 1,
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "24px 48px",
-          gap: "36px",
-          position: "relative",
-        }}
-      >
+      <main className="main-container">
         {/* Visual Database Popup Modal */}
         {showDatabase && (
           <div
@@ -710,84 +683,57 @@ export default function App() {
           </div>
         )}
 
-        {/* 1. Sleek Evaluation Bar (only shown in Analysis Mode when analysis has started!) */}
-        {gameMode === "analysis" && analysisStarted && (
-          <div
-            style={{
-              width: "28px",
-              height: "520px",
-              backgroundColor: "#2c3e50", // Black color
-              border: "2px solid #565451",
-              borderRadius: "6px",
-              display: "flex",
-              flexDirection: "column",
-              position: "relative",
-              overflow: "hidden",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-            }}
-          >
-            {/* White Percentage Bar at bottom */}
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                width: "100%",
-                height: `${whitePct}%`,
-                backgroundColor: "#ecf0f1",
-                transition: "height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-            />
-
-            {/* Centered evaluation tag text */}
-            <div
-              style={{
-                position: "absolute",
-                width: "100%",
-                textAlign: "center",
-                top: whitePct > 50 ? "16px" : "auto",
-                bottom: whitePct <= 50 ? "16px" : "auto",
-                color: whitePct > 50 ? "#2c3e50" : "#ecf0f1",
-                fontWeight: "bold",
-                fontSize: "11px",
-                pointerEvents: "none",
-                zIndex: 5,
-                transition: "all 0.3s ease",
-              }}
-            >
-              {formatEval(currentEval)}
-            </div>
-          </div>
-        )}
-
         {/* 2. Interactive Board and Side panel */}
-        <div style={{ display: "flex", gap: "28px", alignItems: "flex-start", flexWrap: "wrap", justifyContent: "center" }}>
-          {/* Chessboard container */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "520px", maxWidth: "100%" }}>
-            <Chessboard
-              board={gameMode === "analysis" ? analysisBoard : previewBoard}
-              onMakeMove={handleMakeMove}
-              selectedSq={selectedSq}
-              setSelectedSq={setSelectedSq}
-              isFlipped={isFlipped}
-              interactive={gameMode !== "analysis" && !engineThinking && !gameOver}
-              lastMove1={lastMove1}
-              lastMove2={lastMove2}
-            />
+        <div className="game-layout">
+          {/* Chessboard container with integrated evaluation bar */}
+          <div className="board-wrapper">
+            {/* 1. Sleek Evaluation Bar (only shown in Analysis Mode when analysis has started!) */}
+            {gameMode === "analysis" && analysisStarted && (
+              <div className="eval-bar-vertical">
+                {/* White Percentage Bar at bottom */}
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    width: "100%",
+                    height: `${whitePct}%`,
+                    backgroundColor: "#ecf0f1",
+                    transition: "height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                />
+
+                {/* Centered evaluation tag text */}
+                <div
+                  className="eval-bar-text"
+                  style={{
+                    top: whitePct > 50 ? "12px" : "auto",
+                    bottom: whitePct <= 50 ? "12px" : "auto",
+                    color: whitePct > 50 ? "#2c3e50" : "#ecf0f1",
+                  }}
+                >
+                  {formatEval(currentEval)}
+                </div>
+              </div>
+            )}
+
+            {/* Chessboard itself */}
+            <div className="chessboard-container">
+              <Chessboard
+                board={gameMode === "analysis" ? analysisBoard : previewBoard}
+                onMakeMove={handleMakeMove}
+                selectedSq={selectedSq}
+                setSelectedSq={setSelectedSq}
+                isFlipped={isFlipped}
+                interactive={gameMode !== "analysis" && !engineThinking && !gameOver}
+                lastMove1={lastMove1}
+                lastMove2={lastMove2}
+              />
+            </div>
           </div>
 
           {/* Left-sidebar game details */}
-          <div
-            className="glass-card"
-            style={{
-              width: "360px",
-              minHeight: "520px",
-              padding: "20px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "14px",
-            }}
-          >
+          <div className="glass-card side-panel">
             {/* Status Section */}
             <div
               style={{
