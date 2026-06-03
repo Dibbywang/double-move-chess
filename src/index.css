@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700&family=Noto+Sans+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg-primary: #161512;
+  --bg-secondary: #262421;
+  --bg-tertiary: #363431;
+  --accent-green: #2ecc71;
+  --accent-blue: #3498db;
+  --accent-orange: #e67e22;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-primary: #f5f5f5;
+  --text-secondary: #bab9b8;
+  --glass-bg: rgba(38, 36, 33, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-shadow: rgba(0, 0, 0, 0.4);
+
+  /* Chess Colors */
+  --board-light: #f0d9b5;
+  --board-dark: #b58863;
+  --square-selected: rgba(218, 195, 74, 0.55);
+  --square-dest: rgba(20, 85, 30, 0.4);
+  --square-path: rgba(241, 196, 15, 0.35);
+  --square-check: rgba(231, 76, 60, 0.6);
+
+  font-family: 'Noto Sans', system-ui, sans-serif;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: inherit;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #464441;
+}
+
+/* Glassmorphism utility card */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 var(--glass-shadow);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #fff 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.glow-green {
+  text-shadow: 0 0 10px rgba(46, 204, 113, 0.4);
+}
+
+/* Chess board animations */
+@keyframes piece-drop {
+  0% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1.0);
+  }
+}
+
+.piece-anim {
+  animation: piece-drop 0.12s ease-out;
+}
+
+@keyframes pulse-light {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.pulse-target {
+  animation: pulse-light 1.5s infinite;
+}
+
+/* Analysis badges */
+.badge-blunder  { background: rgba(192, 57, 43, 0.2); color: #e74c3c; border: 1px solid rgba(192, 57, 43, 0.3); }
+.badge-mistake  { background: rgba(211, 84, 0, 0.2);  color: #e67e22; border: 1px solid rgba(211, 84, 0, 0.3); }
+.badge-good     { background: rgba(39, 174, 96, 0.15); color: #2ecc71; border: 1px solid rgba(39, 174, 96, 0.2); }
+.badge-great    { background: rgba(41, 182, 246, 0.15); color: #29b6f6; border: 1px solid rgba(41, 182, 246, 0.2); }
+.badge-neutral  { background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--border-color); }
+
+.analysis-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: var(--accent-green);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
