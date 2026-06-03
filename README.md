@@ -1,111 +1,62 @@
-# Double Move Chess: Hybrid AI Engine & Web Client
+# Double Move Chess: Web Client
 
-Double Move Chess is a unique chess variant where each player makes **two moves in a single turn**. 
-This project features a hybrid development pipeline: a high-performance **Rust Move Engine**, a **PyTorch Reinforcement Learning Training Suite**, and a gorgeous, responsive **React + Vite Web Client** powered by client-side **ONNX model inference**.
-
----
-
-## 🎮 Double Move Chess Rules
-
-1. **Double Moves**: White starts by making two consecutive moves. Then Black makes two consecutive moves, and so on.
-2. **Immediate Check Checkpoint**: If a player's first move delivers a check, their turn ends *immediately* (they do not get a second move).
-3. **Check Resolution**: A player cannot end their turn with their King in check. If they are in check at the start of their turn, they must escape the check on or before their second move.
-4. **No King Capture**: You cannot capture the opponent's king. Checkmate is achieved when the opponent cannot escape check within their two moves.
+This is the web client for the Double Move Chess game. It is a highly polished, responsive React application built with TypeScript and Vite. It allows players to match up against a trained ONNX value network running directly in the browser via WebAssembly (WASM), or fall back to a pure classical alpha-beta search engine.
 
 ---
 
-## ⚙️ Architecture Pipeline
+## ✨ Features
 
-```mermaid
-graph TD
-    A[Rust Move Generator] -->|Self-Play & Blunders| B[games.jsonl Dataset]
-    B -->|PyTorch Training train.py| C[best_model.pth Weights]
-    C -->|ONNX Export| D[model.onnx public/dir]
-    D -->|onnxruntime-web JS| E[React App App.tsx]
-    F[Classical Fallback Engine] -->|Depth-5 search.ts| E
+- **🎮 Game Modes**: Play against the **🧠 Neural Network AI** (WebGL/WASM accelerated) or **🧮 Pure Classical** engine (alphabeta search with PST heuristics), or play locally against a friend in **Local PvP** mode.
+- **🎨 Modern Design**: Beautiful dark mode styled with premium gradients, harmonized HSL color tokens, micro-animations, and clean Noto Sans typography.
+- **📦 Saved Games Database**: Keeps track of your played games locally in the browser. You can revisit games or delete old logs.
+- **🔍 Deep Game Analysis**:
+  - **Instant Load**: Loading games into analysis mode is immediate, avoiding browser freezes.
+  - **Interactive Stepper**: Play through the game's moves manually ply-by-ply.
+  - **Interactive Move Log**: Click any move in the log to jump the chessboard straight to that turn. Active moves are highlighted.
+  - **On-Demand Engine**: Click the **Begin Analysis** button to start a depth-5 evaluation sweep of the whole game. Shows classification badges (Blunder, Mistake, Good, Great, Neutral) and best-move recommendations dynamically.
+- **🚀 Portable Build**: Configured to build with relative path resolution (`base: "./"`) so the production build is instantly ready to deploy on **GitHub Pages** or any subfolder structure.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Framework**: React 19 (TypeScript)
+- **Bundler**: Vite
+- **Styling**: Modern CSS variables & utilities (vanilla CSS for maximum control)
+- **AI Inference**: `onnxruntime-web` (running `model.onnx` on wasm/webgl)
+- **Icons**: `lucide-react`
+- **Typography**: Google Fonts Noto Sans & Noto Sans Mono
+
+---
+
+## 🚀 Development & Build
+
+### 1. Install Dependencies
+```bash
+npm install
 ```
 
----
+### 2. Run Development Server
+Ensure you have placed your trained `model.onnx` file inside the `public/` directory, then start Vite:
+```bash
+npm run dev
+```
+Open `http://localhost:5173/` in your browser.
 
-## 🛠️ Project Components
+### 3. Build for Production
+Compiles the application to highly optimized static assets in the `dist/` directory with relative base paths (fully compatible with GitHub Pages hosting):
+```bash
+npm run build
+```
 
-### 1. Rust Move & Search Engine (`/src`)
-- **`board.rs` & `moves.rs`**: Core board state management and double-move legal move generator.
-- **`search.rs`**: Heuristic evaluation using Piece-Square Tables (PSTs) and deep Alpha-Beta search.
-- **`data.rs`**: Self-play generator that creates high-quality training datasets. It injects **Blunder Counter-Factuals** (exploring alternate worse moves) into the history to ensure the neural network learns to recognize and score poor positions.
-- **`gui.rs`**: Interactive native desktop GUI for debugging matches.
+### 4. Deploy to GitHub Pages
+Automatically builds the app and publishes the production files in `dist/` to the `gh-pages` branch of your GitHub repository:
+```bash
+npm run deploy
+```
 
-### 2. PyTorch Neural Network (`train.py`)
-- Value network architecture trained on generated self-play logs.
-- Outputs positional evaluation scores mapped to win/loss probabilities.
-- Compiles the best checkpoint to `model.onnx` for browser compatibility.
-
-### 3. React Web Application (`/web`)
-A highly polished, dark-themed frontend built with React, Vite, and TypeScript.
-- **AI Play Modes**: Play vs the AI (either using the **🧠 Neural Network** via WebAssembly WASM, or the **🧮 Pure Classical Heuristics** fallback engine).
-- **Rich Visuals**: Interactive Chessboard with target move dots, move paths, check highlights, and custom responsive scaling.
-- **Saved Games Database**: Locally persist your matches using IndexedDB/localStorage.
-- **Instant Analysis Flow**: 
-  - Clicking a game loads it instantly at the starting position (zero UI blocking/freezes).
-  - Jumps or steps through plies using a manual slider/stepper or click-to-navigate Move Log.
-  - Generates detailed evaluations (Blunder, Mistake, Good, Great, Neutral badges) and best-move recommendations on demand when clicking **Begin Analysis**.
-- **GitHub Pages Portable**: Compiled with relative base routing so the app can be uploaded and deployed instantly to any domain subfolder.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- **Rust** (MSRV 1.70+)
-- **Python 3.8+** with PyTorch
-- **Node.js** (v18+) & **npm**
-
----
-
-### Running the Rust Engine & Data Generation
-1. Compile the Rust engine:
-   ```bash
-   cargo build --release
-   ```
-2. Generate self-play training games:
-   ```bash
-   cargo run --release -- --mode data
-   ```
-
-### Training the Model
-1. Install Python dependencies:
-   ```bash
-   pip install torch onnx
-   ```
-2. Train the value network and export the ONNX model:
-   ```bash
-   python train.py
-   ```
-3. Copy the resulting `model.onnx` file into the React project's public folder:
-   ```bash
-   cp model.onnx web/public/
-   ```
-
-### Running the React Web Client
-1. Navigate into the web folder:
-   ```bash
-   cd web
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the local development server:
-   ```bash
-   npm run dev
-   ```
-4. Build for production (GitHub Pages ready):
-   ```bash
-   npm run build
-   ```
-   The compiled static files will be placed in `web/dist`.
-
----
-
-## 📄 License
-This project is licensed under the MIT License.
+### 5. Preview the Build
+Locally preview your production build:
+```bash
+npm run preview
+```
