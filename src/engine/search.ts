@@ -9,6 +9,7 @@ import {
   QUEEN,
   KING,
   WHITE,
+  BLACK,
 } from "./board";
 import { generateMoves, makeMove } from "./moves";
 import type { Move } from "./moves";
@@ -141,8 +142,69 @@ const ROOK_VAL = 50;
 const QUEEN_VAL = 90;
 const KING_VAL = 10000;
 
+// Returns true if the king on kingSq is directly attacked by any piece of attackerColor.
+// This detects "check" — positions where the opponent can capture the king in ONE ply.
+// In double-move chess this is critical: an attacked king means guaranteed loss on the
+// opponent's NEXT half-move (they capture king as their ply 1, then have a free ply 2).
+function isKingAttackedBy(board: Board, kingSq: number, attackerColor: number): boolean {
+  const kf = kingSq % 8;
+  const kr = Math.floor(kingSq / 8);
+
+  // Sliding pieces: check rook/queen along ranks and files
+  for (const [df, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    let f = kf + df, r = kr + dr;
+    while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+      const sq = r * 8 + f;
+      const p = board.getPiece(sq);
+      if (p !== EMPTY) {
+        if (board.getColor(sq) === attackerColor && (p === ROOK || p === QUEEN)) return true;
+        break;
+      }
+      f += df; r += dr;
+    }
+  }
+
+  // Sliding pieces: check bishop/queen along diagonals
+  for (const [df, dr] of [[-1,-1],[-1,1],[1,-1],[1,1]]) {
+    let f = kf + df, r = kr + dr;
+    while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+      const sq = r * 8 + f;
+      const p = board.getPiece(sq);
+      if (p !== EMPTY) {
+        if (board.getColor(sq) === attackerColor && (p === BISHOP || p === QUEEN)) return true;
+        break;
+      }
+      f += df; r += dr;
+    }
+  }
+
+  // Knight attacks
+  for (const [df, dr] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+    const f = kf + df, r = kr + dr;
+    if (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+      const sq = r * 8 + f;
+      if (board.getPiece(sq) === KNIGHT && board.getColor(sq) === attackerColor) return true;
+    }
+  }
+
+  // Pawn attacks: white pawns attack from below (higher row index), black from above (lower)
+  const pawnRow = attackerColor === WHITE ? kr + 1 : kr - 1;
+  for (const df of [-1, 1]) {
+    const f = kf + df;
+    if (f >= 0 && f <= 7 && pawnRow >= 0 && pawnRow <= 7) {
+      const sq = pawnRow * 8 + f;
+      if (board.getPiece(sq) === PAWN && board.getColor(sq) === attackerColor) return true;
+    }
+  }
+
+  return false;
+}
+
 export function evaluate(board: Board): number {
   let score = 0;
+  let whiteKingSq = -1;
+  let blackKingSq = -1;
+
   for (let sq = 0; sq < 64; sq++) {
     const piece = board.getPiece(sq);
     if (piece !== EMPTY) {
@@ -158,14 +220,19 @@ export function evaluate(board: Board): number {
       const file = sq % 8;
       const rank = Math.floor(sq / 8);
       const isWhite = board.getColor(sq) === WHITE;
-      
+
+      if (piece === KING) {
+        if (isWhite) whiteKingSq = sq;
+        else blackKingSq = sq;
+      }
+
       if (piece === PAWN) {
         val += isWhite ? (6 - rank) * 1 : (rank - 1) * 1;
       } else if (piece === KNIGHT || piece === BISHOP) {
         const centerDist = Math.abs(3.5 - file) + Math.abs(3.5 - rank);
         val += (7 - centerDist) * 0.5;
       }
-      
+
       if (isWhite) {
         score += val;
       } else {
@@ -173,6 +240,51 @@ export function evaluate(board: Board): number {
       }
     }
   }
+
+  // King safety: penalize for each missing pawn in the 3-square shield directly
+  // in front of the king. In double-move chess an open diagonal/file is lethal
+  // because the queen can cover 2 squares in a single turn.
+  const KING_SAFETY_PENALTY = 20; // per missing shield pawn
+  if (whiteKingSq >= 0) {
+    const kr = Math.floor(whiteKingSq / 8);
+    const kf = whiteKingSq % 8;
+    let shield = 0;
+    for (let df = -1; df <= 1; df++) {
+      const sf = kf + df;
+      const shieldSq = (kr - 1) * 8 + sf;
+      if (sf >= 0 && sf <= 7 && kr > 0 &&
+          board.getPiece(shieldSq) === PAWN && board.getColor(shieldSq) === WHITE) {
+        shield++;
+      }
+    }
+    score += (shield - 3) * KING_SAFETY_PENALTY;
+  }
+  if (blackKingSq >= 0) {
+    const kr = Math.floor(blackKingSq / 8);
+    const kf = blackKingSq % 8;
+    let shield = 0;
+    for (let df = -1; df <= 1; df++) {
+      const sf = kf + df;
+      const shieldSq = (kr + 1) * 8 + sf;
+      if (sf >= 0 && sf <= 7 && kr < 7 &&
+          board.getPiece(shieldSq) === PAWN && board.getColor(shieldSq) === BLACK) {
+        shield++;
+      }
+    }
+    score -= (shield - 3) * KING_SAFETY_PENALTY;
+  }
+
+  // Direct king attack penalty: if any enemy piece can capture the king in ONE PLY,
+  // the position is essentially a forced loss — the opponent just wins on their next move.
+  // This prevents the horizon effect where a king threat falls just outside search depth.
+  const KING_ATTACK_PENALTY = 500;
+  if (whiteKingSq >= 0 && isKingAttackedBy(board, whiteKingSq, BLACK)) {
+    score -= KING_ATTACK_PENALTY;
+  }
+  if (blackKingSq >= 0 && isKingAttackedBy(board, blackKingSq, WHITE)) {
+    score += KING_ATTACK_PENALTY;
+  }
+
   return score;
 }
 
@@ -255,9 +367,10 @@ export function alphabeta(board: Board, depth: number, alpha: number, beta: numb
     return [adj, null];
   }
 
-  // Direct King Attack Check: If the opponent left their king under direct attack at the end of their turn,
-  // they lose immediately (win for the side to move). This is checked at the start of a turn (pliesThisTurn == 0).
-  if (board.pliesThisTurn === 0) {
+  // Direct King Attack Check: at the start of ANY turn (both ply 0 and ply 1) check if
+  // the current side can immediately capture the opponent's king. This catches the case
+  // where the opponent left their king exposed mid-turn as well as at turn boundaries.
+  {
     const moves = generateMoves(board);
     for (const m of moves) {
       if (m.captured !== EMPTY && (m.captured & 7) === KING) {
@@ -431,32 +544,7 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
     return [bestEntry[0], bestEntry[1]];
   }
 
-  // Boltzmann temperature selection
-  let activePieces = 0;
-  for (let sq = 0; sq < 64; sq++) {
-    if (board.squares[sq] !== EMPTY) activePieces++;
-  }
-  const temp = activePieces >= 28 ? 1.0 : (activePieces >= 20 ? 0.8 : 0.5);
-
-  const weights: number[] = [];
-  let totalWeight = 0.0;
   const bestScore = isMaximizing ? maxScore : minScore;
-
-  for (const [score] of moveScores) {
-    const diff = isMaximizing ? score - bestScore : bestScore - score; // <= 0
-    const weight = Math.exp(diff / temp);
-    weights.push(weight);
-    totalWeight += weight;
-  }
-
-  let target = Math.random() * totalWeight;
-  for (let i = 0; i < moveScores.length; i++) {
-    target -= weights[i];
-    if (target <= 0.0) {
-      return moveScores[i];
-    }
-  }
-
-  const fallbackEntry = moveScores.find(x => x[0] === bestScore)!;
-  return fallbackEntry;
+  const bestEntry = moveScores.find(x => x[0] === bestScore)!;
+  return bestEntry;
 }
