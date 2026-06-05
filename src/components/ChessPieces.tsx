@@ -1,14 +1,14 @@
 import React from "react";
 import { WHITE, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING } from "../engine/board";
 
-// Mapping piece type+color to the pixel PNG asset filename (in /pieces/)
+// Mapping piece type+color to the pixel PNG asset filename (in pieces/)
 const PIECE_IMAGE: Record<number, Record<number, string>> = {
-  [PAWN]:   { [WHITE]: "/pieces/wP.png", [16]: "/pieces/bP.png" },
-  [KNIGHT]: { [WHITE]: "/pieces/wN.png", [16]: "/pieces/bN.png" },
-  [BISHOP]: { [WHITE]: "/pieces/wB.png", [16]: "/pieces/bB.png" },
-  [ROOK]:   { [WHITE]: "/pieces/wR.png", [16]: "/pieces/bR.png" },
-  [QUEEN]:  { [WHITE]: "/pieces/wQ.png", [16]: "/pieces/bQ.png" },
-  [KING]:   { [WHITE]: "/pieces/wK.png", [16]: "/pieces/bK.png" },
+  [PAWN]:   { [WHITE]: "pieces/wP.png", [16]: "pieces/bP.png" },
+  [KNIGHT]: { [WHITE]: "pieces/wN.png", [16]: "pieces/bN.png" },
+  [BISHOP]: { [WHITE]: "pieces/wB.png", [16]: "pieces/bB.png" },
+  [ROOK]:   { [WHITE]: "pieces/wR.png", [16]: "pieces/bR.png" },
+  [QUEEN]:  { [WHITE]: "pieces/wQ.png", [16]: "pieces/bQ.png" },
+  [KING]:   { [WHITE]: "pieces/wK.png", [16]: "pieces/bK.png" },
 };
 
 export const RenderPiece: React.FC<{ type: number; color: number; className?: string }> = ({
@@ -16,8 +16,9 @@ export const RenderPiece: React.FC<{ type: number; color: number; className?: st
   color,
   className,
 }) => {
-  const src = PIECE_IMAGE[type]?.[color];
-  if (!src) return null;
+  const imagePath = PIECE_IMAGE[type]?.[color];
+  if (!imagePath) return null;
+  const src = import.meta.env.BASE_URL + imagePath;
 
   return (
     <div
