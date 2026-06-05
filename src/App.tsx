@@ -16,6 +16,7 @@ import {
   Trash2,
   Activity,
   Play,
+  Loader2,
 } from "lucide-react";
 
 interface SavedGame {
@@ -203,15 +204,26 @@ export default function App() {
       setPreviewBoard(nextBoard);
       setMoveHistory((prev) => [...prev, bestMove]);
       
-      if (nextBoard.pliesThisTurn === 1) {
+      const totalPlies = currentBoard.pliesAllowedThisTurn;
+
+      // Still mid-turn (e.g. after ply 1 of a 2-ply turn)?
+      if (nextBoard.sideToMove === currentBoard.sideToMove && nextBoard.pliesThisTurn > 0) {
         setLastMove1(bestMove);
         setLastMove2(null);
-        setStatusMsg("Robot's Turn (Ply 2/2)");
+        setStatusMsg(`Robot's Turn (Ply 2/${totalPlies})`);
         // Trigger second move immediately
         triggerRobotMove(nextBoard);
       } else {
-        setLastMove2(bestMove);
-        setStatusMsg("White's Turn (Ply 1/2)");
+        // Turn is fully done — hand back to the human side
+        if (nextBoard.pliesThisTurn === 0) {
+          setLastMove2(bestMove);
+        } else {
+          setLastMove1(bestMove);
+          setLastMove2(null);
+        }
+        const humanColor = nextBoard.sideToMove === WHITE ? "White" : "Black";
+        const humanTotal = nextBoard.pliesAllowedThisTurn;
+        setStatusMsg(`${humanColor}'s Turn (Ply 1/${humanTotal})`);
         updateEvaluation(nextBoard);
 
         const result = checkGameOver(nextBoard);
@@ -245,12 +257,16 @@ export default function App() {
     setPreviewBoard(nextBoard);
     setMoveHistory((prev) => [...prev, m]);
 
-    if (nextBoard.pliesThisTurn === 1) {
+    // Check whether the current side still has more plies this turn
+    const turnComplete = nextBoard.sideToMove !== previewBoard.sideToMove || nextBoard.pliesThisTurn === 0;
+    const totalPlies = previewBoard.pliesAllowedThisTurn;
+
+    if (!turnComplete) {
+      // Mid-turn: player still has another ply to play
       setLastMove1(m);
       setLastMove2(null);
-      setStatusMsg(
-        nextBoard.sideToMove === WHITE ? "White's Turn (Ply 2/2)" : "Black's Turn (Ply 2/2)"
-      );
+      const color = nextBoard.sideToMove === WHITE ? "White" : "Black";
+      setStatusMsg(`${color}'s Turn (Ply 2/${totalPlies})`);
       updateEvaluation(nextBoard);
     } else {
       // Completed full turn!
@@ -272,9 +288,9 @@ export default function App() {
         triggerRobotMove(nextBoard);
       } else {
         // Local PvP: Hand turn over
-        setStatusMsg(
-          nextBoard.sideToMove === WHITE ? "White's Turn (Ply 1/2)" : "Black's Turn (Ply 1/2)"
-        );
+        const nextColor = nextBoard.sideToMove === WHITE ? "White" : "Black";
+        const nextTotal = nextBoard.pliesAllowedThisTurn;
+        setStatusMsg(`${nextColor}'s Turn (Ply 1/${nextTotal})`);
       }
     }
   };
@@ -300,7 +316,8 @@ export default function App() {
 
     const plies = newB.pliesThisTurn;
     const color = newB.sideToMove === WHITE ? "White" : "Black";
-    setStatusMsg(`${color}'s Turn (Ply ${plies + 1}/2)`);
+    const totalPliesUndo = newB.pliesAllowedThisTurn;
+    setStatusMsg(`${color}'s Turn (Ply ${plies + 1}/${totalPliesUndo})`);
     updateEvaluation(newB);
   };
 
@@ -311,7 +328,7 @@ export default function App() {
     setLastMove1(null);
     setLastMove2(null);
     setGameOver(null);
-    setStatusMsg("White's Turn (Ply 1/2)");
+    setStatusMsg("White's Turn (Ply 1/1)"); // White's handicapped first turn
     updateEvaluation(newB);
 
     if (gameMode === "pvr" && playerColor === BLACK) {
@@ -752,8 +769,15 @@ export default function App() {
                   fontSize: "16px",
                   fontWeight: "bold",
                   color: gameOver ? "var(--accent-orange)" : "var(--text-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
                 }}
               >
+                {engineThinking && (
+                  <Loader2 size={16} className="animate-spin" style={{ color: "var(--accent-blue)" }} />
+                )}
                 {gameMode === "analysis" ? getAnalysisStatus() : statusMsg}
               </div>
             </div>

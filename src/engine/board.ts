@@ -17,6 +17,13 @@ export class Board {
   public nextEpTargets: bigint;
   public castlingRights: number; // bit 0: WK, bit 1: WQ, bit 2: BK, bit 3: BQ
 
+  /**
+   * Counts the number of full "rounds" completed (White+Black each acting).
+   * On turnNumber === 0, White is limited to 1 ply only (balancing opening advantage).
+   * From turnNumber === 1 onward, both sides get 2 plies per turn as normal.
+   */
+  public turnNumber: number;
+
   constructor() {
     this.squares = new Uint8Array(64);
     this.sideToMove = WHITE;
@@ -24,6 +31,7 @@ export class Board {
     this.activeEpTargets = 0n;
     this.nextEpTargets = 0n;
     this.castlingRights = 15;
+    this.turnNumber = 0;
     this.setInitialPosition();
   }
 
@@ -55,6 +63,7 @@ export class Board {
     this.activeEpTargets = 0n;
     this.nextEpTargets = 0n;
     this.castlingRights = 15;
+    this.turnNumber = 0;
   }
 
   clone(): Board {
@@ -65,7 +74,17 @@ export class Board {
     b.activeEpTargets = this.activeEpTargets;
     b.nextEpTargets = this.nextEpTargets;
     b.castlingRights = this.castlingRights;
+    b.turnNumber = this.turnNumber;
     return b;
+  }
+
+  /**
+   * How many plies the current side is allowed this turn.
+   * White on the very first turn (turnNumber === 0): 1 ply only.
+   * All other turns: 2 plies.
+   */
+  get pliesAllowedThisTurn(): number {
+    return (this.turnNumber === 0 && this.sideToMove === WHITE) ? 1 : 2;
   }
 
   getPiece(sq: number): number {

@@ -302,10 +302,18 @@ export function makeMove(board: Board, m: Move) {
     }
   }
 
-  // Turn tracking
+  // Turn tracking — White gets 1 ply only on turn 0 (to balance opening advantage);
+  // all other turns allow 2 plies.
   board.pliesThisTurn += 1;
-  if (board.pliesThisTurn === 2) {
+  if (board.pliesThisTurn >= board.pliesAllowedThisTurn) {
     board.pliesThisTurn = 0;
+    // Increment turn counter when Black finishes (completing a full round White+Black)
+    if (us === BLACK) {
+      board.turnNumber += 1;
+    } else if (board.turnNumber === 0) {
+      // White's handicapped first turn: also increment so we don't loop on turn 0
+      board.turnNumber += 1;
+    }
     board.sideToMove = them;
     board.activeEpTargets = board.nextEpTargets;
     board.nextEpTargets = 0n;

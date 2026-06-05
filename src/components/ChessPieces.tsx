@@ -1,28 +1,24 @@
 import React from "react";
 import { WHITE, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING } from "../engine/board";
 
+// Mapping piece type+color to the pixel PNG asset filename (in /pieces/)
+const PIECE_IMAGE: Record<number, Record<number, string>> = {
+  [PAWN]:   { [WHITE]: "/pieces/wP.png", [16]: "/pieces/bP.png" },
+  [KNIGHT]: { [WHITE]: "/pieces/wN.png", [16]: "/pieces/bN.png" },
+  [BISHOP]: { [WHITE]: "/pieces/wB.png", [16]: "/pieces/bB.png" },
+  [ROOK]:   { [WHITE]: "/pieces/wR.png", [16]: "/pieces/bR.png" },
+  [QUEEN]:  { [WHITE]: "/pieces/wQ.png", [16]: "/pieces/bQ.png" },
+  [KING]:   { [WHITE]: "/pieces/wK.png", [16]: "/pieces/bK.png" },
+};
+
 export const RenderPiece: React.FC<{ type: number; color: number; className?: string }> = ({
   type,
   color,
   className,
 }) => {
-  const isWhite = color === WHITE;
-  
-  // Use standard filled Unicode characters for both sides, but style them by color
-  // Alternatively, use standard outlines for white and filled for black.
-  // We'll use standard outlines for white and filled for black as requested by "normal chess sets"
-  let char = "";
-  switch (type) {
-    case PAWN:   char = "♟"; break;
-    case KNIGHT: char = "♞"; break;
-    case BISHOP: char = "♝"; break;
-    case ROOK:   char = "♜"; break;
-    case QUEEN:  char = "♛"; break;
-    case KING:   char = "♚"; break;
-    default: return null;
-  }
+  const src = PIECE_IMAGE[type]?.[color];
+  if (!src) return null;
 
-  // To make it look clean and normal, we'll apply a simple text style
   return (
     <div
       className={className}
@@ -32,16 +28,24 @@ export const RenderPiece: React.FC<{ type: number; color: number; className?: st
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "8cqw", // Scale up the Unicode character relative to the board
-        lineHeight: 1,
-        fontFamily: "Arial, sans-serif",
-        color: isWhite ? "#ffffff" : "#000000",
-        textShadow: isWhite ? "0px 1px 2px rgba(0,0,0,0.5)" : "0px 1px 2px rgba(255,255,255,0.3)",
         userSelect: "none",
         cursor: "pointer",
       }}
     >
-      {char}
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        style={{
+          width: "82%",
+          height: "82%",
+          objectFit: "contain",
+          // Crisp pixel-art rendering — no bilinear blurring
+          imageRendering: "pixelated",
+          display: "block",
+          pointerEvents: "none",
+        }}
+      />
     </div>
   );
 };

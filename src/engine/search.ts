@@ -24,6 +24,21 @@ ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/di
 let session: ort.InferenceSession | null = null;
 let modelLoading = false;
 
+let lastYieldTime = performance.now();
+
+/**
+ * Yield to the event loop if too much time has passed without rendering.
+ * This prevents the browser from freezing during deep or wide searches,
+ * ensuring the user can still click buttons and the UI can update.
+ */
+async function yieldIfNeeded() {
+  const now = performance.now();
+  if (now - lastYieldTime > 25) { // Yield approx every 25ms (40 fps)
+    await new Promise(resolve => setTimeout(resolve, 0));
+    lastYieldTime = performance.now();
+  }
+}
+
 export async function getModelLoadingState(): Promise<boolean> {
   return modelLoading;
 }
@@ -37,7 +52,7 @@ export async function loadModel(): Promise<boolean> {
     session = await ort.InferenceSession.create("model.onnx", {
       executionProviders: ["wasm"],
     });
-    console.log("ONNX Model loaded successfully in browser!");
+    console.log("ONNX Model loaded. Outputs:", session.outputNames);
     modelLoading = false;
     return true;
   } catch (e) {
@@ -69,39 +84,16 @@ export function boardToString(board: Board): string {
   return s;
 }
 
-export async function evaluateNeural(board: Board): Promise<number> {
+/**
+ * Run the ONNX model on a board and return [value_score, policy_logits].
+ * The new dual-output model exports:
+ *   - 'value'  : scalar evaluation (shape [1,1])
+ *   - 'policy' : move logits over 4096 (from*64+to) pairs (shape [1,4096])
+ * Falls back to static evaluate() if the model isn't loaded.
+ */
+export async function runModel(board: Board): Promise<[number, Float32Array | null]> {
   const staticVal = evaluate(board);
-  if (Math.abs(staticVal) > 80) {
-    return staticVal;
-  }
-
-  // 1-Ply minimax lookahead for mid-turn states
-  if (board.pliesThisTurn === 1) {
-    const moves = generateMoves(board);
-    if (moves.length === 0) {
-      return staticVal;
-    }
-    const isMaximizing = board.sideToMove === WHITE;
-    let bestVal = isMaximizing ? -1000000 : 1000000;
-    let evaluatedAny = false;
-
-    for (const m of moves) {
-      const child = board.clone();
-      makeMove(child, m);
-      const childVal = await evaluateNeural(child);
-      evaluatedAny = true;
-      if (isMaximizing) {
-        bestVal = Math.max(bestVal, childVal);
-      } else {
-        bestVal = Math.min(bestVal, childVal);
-      }
-    }
-    return evaluatedAny ? bestVal : staticVal;
-  }
-
-  if (!session) {
-    return staticVal;
-  }
+  if (!session) return [staticVal, null];
 
   try {
     const data = new Float32Array(13 * 8 * 8);
@@ -111,28 +103,61 @@ export async function evaluateNeural(board: Board): Promise<number> {
       const piece = boardStr[sq];
       if (piece in PIECE_TO_INDEX) {
         const cIdx = PIECE_TO_INDEX[piece];
-        data[cIdx * 64 + sq] = 1.0;
+        const r = Math.floor(sq / 8), f = sq % 8;
+        data[cIdx * 64 + r * 8 + f] = 1.0;
       }
     }
-
     if (board.sideToMove === WHITE) {
-      for (let i = 0; i < 64; i++) {
-        data[12 * 64 + i] = 1.0;
-      }
+      for (let i = 0; i < 64; i++) data[12 * 64 + i] = 1.0;
     }
 
     const inputTensor = new ort.Tensor("float32", data, [1, 13, 8, 8]);
-    const inputName = session.inputNames[0];
-    const results = await session.run({ [inputName]: inputTensor });
-    const outputTensor = results[Object.keys(results)[0]];
-    const val = (outputTensor.data as Float32Array)[0];
+    const inputName   = session.inputNames[0];
+    const results     = await session.run({ [inputName]: inputTensor });
 
-    // Output is in pawns. Scale to decipawns (x10) to match internal scale.
-    return val * 10.0;
+    // Support both old single-output and new dual-output models
+    const valueOutput  = results['value']  ?? results[session.outputNames[0]];
+    const policyOutput = results['policy'] ?? (session.outputNames.length > 1 ? results[session.outputNames[1]] : null);
+
+    const val = (valueOutput.data as Float32Array)[0] * 10.0; // scale to decipawns
+    const policyLogits = policyOutput
+      ? (policyOutput.data as Float32Array)
+      : null;
+
+    return [val, policyLogits];
   } catch (e) {
     console.error("ONNX evaluation runtime error:", e);
-    return staticVal;
+    return [staticVal, null];
   }
+}
+
+/**
+ * Legacy wrapper: evaluate a board position, returning only the scalar score.
+ * Used by the GUI evaluation bar and analysis mode.
+ */
+export async function evaluateNeural(board: Board): Promise<number> {
+  const staticVal = evaluate(board);
+  if (Math.abs(staticVal) > 80) return staticVal;
+
+  if (board.pliesThisTurn === 1) {
+    const moves = generateMoves(board);
+    if (moves.length === 0) return staticVal;
+    const isMaximizing = board.sideToMove === WHITE;
+    let bestVal = isMaximizing ? -1000000 : 1000000;
+    let evaluatedAny = false;
+    for (const m of moves) {
+      const child = board.clone();
+      makeMove(child, m);
+      const [childVal] = await runModel(child);
+      evaluatedAny = true;
+      bestVal = isMaximizing ? Math.max(bestVal, childVal) : Math.min(bestVal, childVal);
+      await yieldIfNeeded();
+    }
+    return evaluatedAny ? bestVal : staticVal;
+  }
+
+  const [val] = await runModel(board);
+  return val;
 }
 
 const PAWN_VAL = 10;
@@ -428,10 +453,41 @@ export function alphabeta(board: Board, depth: number, alpha: number, beta: numb
   }
 }
 
+/**
+ * Policy-guided move ordering using the neural network's policy head.
+ * Sorts moves by their policy logit value (higher = network prefers this move).
+ * This replaces pure MVV-LVA ordering with neural guidance, allowing much
+ * more effective alpha-beta pruning (AlphaZero-style move ordering).
+ *
+ * Falls back to heuristic scoreMove() if policy logits are unavailable.
+ */
+function orderMovesWithPolicy(
+  board: Board,
+  moves: Move[],
+  policyLogits: Float32Array | null
+): Move[] {
+  if (!policyLogits) {
+    // Fallback: classic MVV-LVA heuristic ordering
+    const scored = moves.map(m => ({ move: m, score: scoreMove(board, m) }));
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map(x => x.move);
+  }
+
+  const scored = moves.map(m => {
+    const policyIdx = m.from * 64 + m.to;
+    const policyScore = policyLogits[policyIdx] ?? 0;
+    // Blend policy with tactical heuristic: captures/promos always near the front
+    const tacticalBonus = scoreMove(board, m) * 0.01;
+    return { move: m, score: policyScore + tacticalBonus };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map(x => x.move);
+}
+
 export async function search(board: Board, plies: number, useNeural: boolean): Promise<[number, Move | null]> {
   let moves = generateMoves(board);
   if (moves.length === 0) {
-    const evalVal = useNeural && session ? await evaluateNeural(board) : evaluate(board);
+    const evalVal = useNeural && session ? (await runModel(board))[0] : evaluate(board);
     return [evalVal, null];
   }
 
@@ -443,18 +499,21 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
     }
   }
 
-  // Sort moves
-  const scoredMoves = moves.map(m => ({ move: m, score: scoreMove(board, m) }));
-  scoredMoves.sort((a, b) => b.score - a.score);
-  moves = scoredMoves.map(x => x.move);
-
   const isMaximizing = board.sideToMove === WHITE;
   const moveScores: [number, Move][] = [];
 
   if (useNeural && session) {
+    // Run the model on the current board to get value + policy logits
+    const [neuralVal, policyLogits] = await runModel(board);
+
+    // Order moves with policy guidance
+    const orderedMoves = orderMovesWithPolicy(board, moves, policyLogits);
+
     if (board.pliesThisTurn === 0) {
-      // Ply 1 of our turn: plan BOTH moves together
-      for (const m1 of moves) {
+      // ── Ply 1 of turn ──────────────────────────────────────────────────────
+      // Plan BOTH plies together: for each candidate ply-1 move, evaluate the
+      // best ply-2 response using the network on the updated board.
+      for (const m1 of orderedMoves) {
         const child = board.clone();
         makeMove(child, m1);
         const childStatic = evaluate(child);
@@ -465,15 +524,21 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
 
         const childMoves = generateMoves(child);
         if (childMoves.length === 0) {
-          const baseScore = await evaluateNeural(child);
-          moveScores.push([baseScore, m1]);
+          moveScores.push([neuralVal, m1]);
           continue;
         }
+
+        // Run model on board-after-ply1 to get ply-2 policy
+        const [childNeuralVal, childPolicyLogits] = await runModel(child);
+        const orderedChildMoves = orderMovesWithPolicy(child, childMoves, childPolicyLogits);
 
         const isMax = child.sideToMove === WHITE;
         let bestM2Score = isMax ? -1000000 : 1000000;
 
-        for (const m2 of childMoves) {
+        // Only explore top-K ply-2 candidates (policy-guided beam)
+        const topK = Math.min(orderedChildMoves.length, 12);
+        for (let ki = 0; ki < topK; ki++) {
+          const m2 = orderedChildMoves[ki];
           if (m2.captured !== EMPTY && (m2.captured & 7) === KING) {
             bestM2Score = isMax ? 10000 : -10000;
             break;
@@ -483,49 +548,49 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
           const grandchildStatic = evaluate(grandchild);
           const baseScore = (grandchildStatic > 5000 || grandchildStatic < -5000)
             ? grandchildStatic
-            : await evaluateNeural(grandchild);
+            : childNeuralVal; // reuse child's neural val as proxy for grandchild
 
-          // Fast 2-ply classical tactical search to protect pieces
+          // Fast tactical verification
           const [tacticalScore] = alphabeta(grandchild, 2, -2000000, 2000000);
-          const score = baseScore + (tacticalScore - grandchildStatic);
+          const score = baseScore + (tacticalScore - grandchildStatic) * 0.5;
 
-          if (isMax) {
-            bestM2Score = Math.max(bestM2Score, score);
-          } else {
-            bestM2Score = Math.min(bestM2Score, score);
-          }
+          bestM2Score = isMax ? Math.max(bestM2Score, score) : Math.min(bestM2Score, score);
         }
         moveScores.push([bestM2Score, m1]);
+        await yieldIfNeeded();
       }
     } else {
-      // Ply 2 of our turn: just complete the turn, looking ahead to the opponent's reply
-      for (const m1 of moves) {
+      // ── Ply 2 of turn ──────────────────────────────────────────────────────
+      // We're on ply 2: just complete the turn, looking ahead with neural val.
+      for (const m1 of orderedMoves) {
         const child = board.clone();
         makeMove(child, m1);
         const childStatic = evaluate(child);
+        const [childNeuralVal] = await runModel(child);
         const baseScore = (childStatic > 5000 || childStatic < -5000)
           ? childStatic
-          : await evaluateNeural(child);
+          : childNeuralVal;
 
         const [tacticalScore] = alphabeta(child, 2, -2000000, 2000000);
-        const score = baseScore + (tacticalScore - childStatic);
+        const score = baseScore + (tacticalScore - childStatic) * 0.5;
         moveScores.push([score, m1]);
+        await yieldIfNeeded();
       }
     }
   } else {
-    // Classical alpha-beta search (3 full turns = 6 plies)
+    // ── Classical alpha-beta search ────────────────────────────────────────
+    // Pre-order with heuristics only
+    moves = orderMovesWithPolicy(board, moves, null);
     let alpha = -2000000;
-    let beta = 2000000;
+    let beta  =  2000000;
     for (const m of moves) {
       const child = board.clone();
       makeMove(child, m);
       const [score] = alphabeta(child, plies - 1, alpha, beta);
       moveScores.push([score, m]);
-      if (isMaximizing) {
-        alpha = Math.max(alpha, score);
-      } else {
-        beta = Math.min(beta, score);
-      }
+      if (isMaximizing) alpha = Math.max(alpha, score);
+      else              beta  = Math.min(beta, score);
+      await yieldIfNeeded();
     }
   }
 
@@ -534,12 +599,12 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
   }
 
   const scoresOnly = moveScores.map(x => x[0]);
-  const maxScore = Math.max(...scoresOnly);
-  const minScore = Math.min(...scoresOnly);
+  const maxScore   = Math.max(...scoresOnly);
+  const minScore   = Math.min(...scoresOnly);
 
-  // Mate check
+  // Mate check: always pick the mating move
   if ((isMaximizing && maxScore > 5000) || (!isMaximizing && minScore < -5000)) {
-    const target = isMaximizing ? maxScore : minScore;
+    const target   = isMaximizing ? maxScore : minScore;
     const bestEntry = moveScores.find(x => x[0] === target)!;
     return [bestEntry[0], bestEntry[1]];
   }
