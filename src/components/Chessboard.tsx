@@ -13,6 +13,7 @@ interface ChessboardProps {
   interactive?: boolean;
   lastMove1?: Move | null;
   lastMove2?: Move | null;
+  engineArrow?: { from: number; to: number } | null;
 }
 
 // Synthesize audio using Web Audio API for zero dependencies and instant load!
@@ -68,6 +69,7 @@ export const Chessboard: React.FC<ChessboardProps> = ({
   interactive = true,
   lastMove1 = null,
   lastMove2 = null,
+  engineArrow = null,
 }) => {
   const [legalDests, setLegalDests] = useState<number[]>([]);
   const activeMoves = generateMoves(board);
@@ -272,7 +274,33 @@ export const Chessboard: React.FC<ChessboardProps> = ({
           >
             <path d="M 0 0 L 6 3 L 0 6 Z" fill="rgba(46, 204, 113, 0.85)" />
           </marker>
+          <marker
+            id="arrowhead-orange"
+            markerWidth="8"
+            markerHeight="8"
+            refX="5"
+            refY="3"
+            orient="auto"
+          >
+            <path d="M 0 0 L 6 3 L 0 6 Z" fill="rgba(230, 126, 34, 0.85)" />
+          </marker>
         </defs>
+
+        {/* Render engine best move arrow in analysis mode */}
+        {engineArrow && (() => {
+          const coords = getArrowCoords(engineArrow.from, engineArrow.to);
+          return (
+            <line
+              x1={`${coords.x1}%`}
+              y1={`${coords.y1}%`}
+              x2={`${coords.x2}%`}
+              y2={`${coords.y2}%`}
+              stroke="rgba(230, 126, 34, 0.85)"
+              strokeWidth="4.5"
+              markerEnd="url(#arrowhead-orange)"
+            />
+          );
+        })()}
         
         {/* Render persistent arrows */}
         {arrows.map((arrow, idx) => {

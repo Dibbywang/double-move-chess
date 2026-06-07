@@ -188,9 +188,9 @@ export default function App() {
     
     let depth = currentBoard.pliesThisTurn === 0 ? 2 : 1;
     if (isOpening) {
-      depth = currentBoard.pliesThisTurn === 0 ? 4 : 3;
+      depth = currentBoard.pliesThisTurn === 0 ? 6 : 5;
     } else if (!activeNeural) {
-      depth = currentBoard.pliesThisTurn === 0 ? 4 : 3;
+      depth = currentBoard.pliesThisTurn === 0 ? 6 : 5;
     }
     
     let bestMove: Move | null = null;
@@ -361,6 +361,24 @@ export default function App() {
     if (delta >= 10) return { label: "Great Move", badge: "badge-great" };
     if (delta >= 2)  return { label: "Good Move", badge: "badge-good" };
     return { label: "Neutral", badge: "badge-neutral" };
+  };
+
+  const parseMoveStr = (moveStr: string): { from: number; to: number } | null => {
+    if (!moveStr || moveStr === "none" || moveStr === "—" || moveStr.length < 4) return null;
+    const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+    const f1 = files.indexOf(moveStr[0]);
+    const r1 = ranks.indexOf(moveStr[1]);
+    const f2 = files.indexOf(moveStr[2]);
+    const r2 = ranks.indexOf(moveStr[3]);
+
+    if (f1 === -1 || r1 === -1 || f2 === -1 || r2 === -1) return null;
+
+    return {
+      from: r1 * 8 + f1,
+      to: r2 * 8 + f2,
+    };
   };
 
   // Batch-analyze ALL positions in a game, storing results in cache.
@@ -756,6 +774,12 @@ export default function App() {
                 interactive={gameMode !== "analysis" && !engineThinking && !gameOver}
                 lastMove1={lastMove1}
                 lastMove2={lastMove2}
+                engineArrow={(() => {
+                  if (gameMode !== "analysis") return null;
+                  const cached = analysisIndex >= 0 ? analysisCache[analysisIndex] : null;
+                  if (!cached || cached.bestMoveStr === "none" || cached.bestMoveStr === "—") return null;
+                  return parseMoveStr(cached.bestMoveStr);
+                })()}
               />
             </div>
           </div>
