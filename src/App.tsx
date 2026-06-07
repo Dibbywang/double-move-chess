@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Board, WHITE, BLACK, EMPTY } from "./engine/board";
 import { makeMove, generateMoves, moveToString } from "./engine/moves";
 import type { Move } from "./engine/moves";
-import { search, evaluateNeural, loadModel, evaluate } from "./engine/search";
+import { search, evaluateNeural, loadModel, loadWasmEngine, evaluate } from "./engine/search";
 import { Chessboard } from "./components/Chessboard";
 import {
   User,
@@ -73,13 +73,13 @@ export default function App() {
   const [analysisStarted, setAnalysisStarted] = useState(false);
   const analysisCancelRef = useRef<number>(0); // increment to cancel a running batch
 
-  // Load ONNX Model on startup
+  // Load ONNX Model and WASM engine on startup
   useEffect(() => {
     async function init() {
-      const success = await loadModel();
-      setModelActive(success);
+      const [modelOk] = await Promise.all([loadModel(), loadWasmEngine()]);
+      setModelActive(modelOk);
       setLoadingModel(false);
-      updateEvaluation(new Board(), success);
+      updateEvaluation(new Board(), modelOk);
     }
     init();
     loadSavedGames();
@@ -188,12 +188,23 @@ export default function App() {
     
     let depth = currentBoard.pliesThisTurn === 0 ? 2 : 1;
     if (isOpening) {
-      depth = currentBoard.pliesThisTurn === 0 ? 6 : 5;
+      depth = currentBoard.pliesThisTurn === 0 ? 4 : 3;
     } else if (!activeNeural) {
-      depth = currentBoard.pliesThisTurn === 0 ? 5 : 4;
+      depth = currentBoard.pliesThisTurn === 0 ? 4 : 3;
     }
     
-    const [_, bestMove] = await search(currentBoard, depth, activeNeural);
+    let bestMove: Move | null = null;
+    try {
+      const res = await search(currentBoard, depth, activeNeural);
+      bestMove = res[1];
+    } catch (e: any) {
+      console.error("Search failed:", e);
+      setEngineThinking(false);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setGameOver("Engine crashed: " + errMsg);
+      setStatusMsg("Error: " + errMsg);
+      return;
+    }
     
     setEngineThinking(false);
 

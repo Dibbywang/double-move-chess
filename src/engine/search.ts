@@ -11,8 +11,46 @@ import {
   WHITE,
   BLACK,
 } from "./board";
-import { generateMoves, makeMove } from "./moves";
-import type { Move } from "./moves";
+import { type Move, generateMoves, makeMove } from "./moves";
+import init, { search_wasm } from "../engine_wasm/engine_v2";
+
+export class EngineWrapper {
+  private boardStr: string = "";
+  private sideToMove: number = 0;
+  private pliesThisTurn: number = 0;
+  private turnNumber: number = 0;
+
+  set_board(boardStr: string, sideToMove: number, pliesThisTurn: number, turnNumber: number) {
+    this.boardStr = boardStr;
+    this.sideToMove = sideToMove;
+    this.pliesThisTurn = pliesThisTurn;
+    this.turnNumber = turnNumber;
+  }
+
+  search(depth: number): any[] {
+    return search_wasm(
+      this.boardStr,
+      this.sideToMove,
+      this.pliesThisTurn,
+      this.turnNumber,
+      depth
+    );
+  }
+}
+
+let wasmEngine: EngineWrapper | null = null;
+
+export async function loadWasmEngine() {
+  if (wasmEngine) return true;
+  try {
+    await init();
+    wasmEngine = new EngineWrapper();
+    return true;
+  } catch (e) {
+    console.error("Failed to load Wasm engine:", e);
+    return false;
+  }
+}
 
 // Initialize onnxruntime web assembly options
 ort.env.wasm.numThreads = 1;
@@ -385,16 +423,14 @@ export function qsearch(board: Board, alpha: number, beta: number): number {
   }
 }
 
-export function alphabeta(board: Board, depth: number, alpha: number, beta: number): [number, Move | null] {
+export async function alphabeta(board: Board, depth: number, alpha: number, beta: number): Promise<[number, Move | null]> {
   const staticEval = evaluate(board);
   if (staticEval > 5000 || staticEval < -5000) {
     const adj = staticEval > 0 ? staticEval + depth : staticEval - depth;
     return [adj, null];
   }
 
-  // Direct King Attack Check: at the start of ANY turn (both ply 0 and ply 1) check if
-  // the current side can immediately capture the opponent's king. This catches the case
-  // where the opponent left their king exposed mid-turn as well as at turn boundaries.
+  // Direct King Attack Check
   {
     const moves = generateMoves(board);
     for (const m of moves) {
@@ -427,13 +463,14 @@ export function alphabeta(board: Board, depth: number, alpha: number, beta: numb
     for (const m of moves) {
       const child = board.clone();
       makeMove(child, m);
-      const [score] = alphabeta(child, depth - 1, alpha, beta);
+      const [score] = await alphabeta(child, depth - 1, alpha, beta);
       if (score > maxEval) {
         maxEval = score;
         bestMove = m;
       }
       alpha = Math.max(alpha, score);
       if (beta <= alpha) break;
+      await yieldIfNeeded();
     }
     return [maxEval, bestMove];
   } else {
@@ -441,13 +478,14 @@ export function alphabeta(board: Board, depth: number, alpha: number, beta: numb
     for (const m of moves) {
       const child = board.clone();
       makeMove(child, m);
-      const [score] = alphabeta(child, depth - 1, alpha, beta);
+      const [score] = await alphabeta(child, depth - 1, alpha, beta);
       if (score < minEval) {
         minEval = score;
         bestMove = m;
       }
       beta = Math.min(beta, score);
       if (beta <= alpha) break;
+      await yieldIfNeeded();
     }
     return [minEval, bestMove];
   }
@@ -551,7 +589,7 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
             : childNeuralVal; // reuse child's neural val as proxy for grandchild
 
           // Fast tactical verification
-          const [tacticalScore] = alphabeta(grandchild, 2, -2000000, 2000000);
+          const [tacticalScore] = await alphabeta(grandchild, 2, -2000000, 2000000);
           const score = baseScore + (tacticalScore - grandchildStatic) * 0.5;
 
           bestM2Score = isMax ? Math.max(bestM2Score, score) : Math.min(bestM2Score, score);
@@ -570,27 +608,59 @@ export async function search(board: Board, plies: number, useNeural: boolean): P
         const baseScore = (childStatic > 5000 || childStatic < -5000)
           ? childStatic
           : childNeuralVal;
-
-        const [tacticalScore] = alphabeta(child, 2, -2000000, 2000000);
+        const [tacticalScore] = await alphabeta(child, 2, -2000000, 2000000);
         const score = baseScore + (tacticalScore - childStatic) * 0.5;
         moveScores.push([score, m1]);
         await yieldIfNeeded();
       }
     }
   } else {
-    // ── Classical alpha-beta search ────────────────────────────────────────
-    // Pre-order with heuristics only
-    moves = orderMovesWithPolicy(board, moves, null);
-    let alpha = -2000000;
-    let beta  =  2000000;
-    for (const m of moves) {
-      const child = board.clone();
-      makeMove(child, m);
-      const [score] = alphabeta(child, plies - 1, alpha, beta);
-      moveScores.push([score, m]);
-      if (isMaximizing) alpha = Math.max(alpha, score);
-      else              beta  = Math.min(beta, score);
-      await yieldIfNeeded();
+    // ── Classical alpha-beta search (WebAssembly) ──────────────────────────
+    // Route through the native Rust Bitboard engine via WASM.
+    if (!wasmEngine) {
+      console.warn("Wasm engine not loaded, falling back to TS alphabeta");
+      moves = orderMovesWithPolicy(board, moves, null);
+      let alpha = -2000000;
+      let beta = 2000000;
+      for (const m of moves) {
+        const child = board.clone();
+        makeMove(child, m);
+        const [score] = await alphabeta(child, plies - 1, alpha, beta);
+        moveScores.push([score, m]);
+        if (isMaximizing) alpha = Math.max(alpha, score);
+        else beta = Math.min(beta, score);
+        await yieldIfNeeded();
+      }
+    } else {
+      // IMPORTANT: TS uses WHITE=8, BLACK=16 as bitmask flags.
+      // Rust expects WHITE=0, BLACK=1. Convert before calling WASM.
+      const rustSideToMove = board.sideToMove === WHITE ? 0 : 1;
+      wasmEngine.set_board(
+        boardToString(board),
+        rustSideToMove,
+        board.pliesThisTurn,
+        board.turnNumber
+      );
+      const result = wasmEngine.search(plies);
+      const score = result[0] as number;
+      const moveStr = result[1] as string | null;
+
+      if (moveStr) {
+        // Wasm returns string "from,to,piece,captured,promotion"
+        // Rust piece indices: PAWN=0,KNIGHT=1,BISHOP=2,ROOK=3,QUEEN=4,KING=5,EMPTY=6
+        // TS piece indices:   EMPTY=0,PAWN=1,KNIGHT=2,BISHOP=3,ROOK=4,QUEEN=5,KING=6
+        const rustToTs = [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, EMPTY]; // index by Rust piece
+        const parts = moveStr.split(",").map(Number);
+        const bestMove: Move = {
+          from: parts[0],
+          to: parts[1],
+          captured: rustToTs[parts[3]] ?? EMPTY,
+          promotion: rustToTs[parts[4]] ?? EMPTY,
+        };
+        return [score, bestMove];
+      } else {
+        return [score, null];
+      }
     }
   }
 
